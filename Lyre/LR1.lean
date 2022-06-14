@@ -172,8 +172,6 @@ def compile (grammar: Grammar): HashMap State Nat × HashSet Transition :=
 
     let (states, transitions) := toLALR (states, transitions)
 
-    let reductions := 
-
     (states, transitions)
   where
     mkTrans (first: First) (tables: HashMap (HashSet Item) Nat × HashSet Transition): HashMap (HashSet Item) Nat × HashSet Transition :=
