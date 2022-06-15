@@ -142,24 +142,40 @@ def reprAct : Action → CommandElabM Syntax
         pure (Syntax.mkApp cons #[Syntax.mkStrLit n, Syntax.mkNumLit (toString e)])
       | Action.accept => `(Action.accept)
 
+def countConflicts (m: LRTable): (Nat × Nat) :=
+    HashSet.fold count (0, 0) m.conflict
+  where
+    count : (Nat × Nat) → Action × Action → (Nat × Nat)
+      | (sr, rr), (Action.reduce _ _, Action.reduce _ _) => (sr, rr + 1)
+      | (sr, rr), (Action.reduce _ _, Action.shift _)  => (sr + 1, rr)
+      | (sr, rr), (Action.shift _, Action.reduce _ _)  => (sr + 1, rr)
+      | res, _ => res
+
 elab gram:gGrammar : command => do
     let (table, acts, nStart, terms, nonTerms, retTy) ← buildGrammarFromSyntax gram
     let emp ← `(List.nil)
-    let st ← table.action.foldM 
+    let st ← table.action.foldM
       (λst (state', term') action => do
         let cons ← `(List.cons)
         let act ← reprAct action
         let x ← `((($(Syntax.mkNumLit (toString state')), $(Syntax.mkStrLit term')), $(act)))
         pure (Syntax.mkApp cons #[x, st]) ) emp
-    let goto ← table.goto.foldM 
+    let goto ← table.goto.foldM
       (λst (state', term') to => do
         let cons ← `(List.cons)
         let x ← `((($(Syntax.mkNumLit (toString state')), $(Syntax.mkStrLit term')), $(Syntax.mkNumLit (toString to))))
         pure (Syntax.mkApp cons #[x, st]) ) emp
-    let macroT ← `({ states := HashMap.empty, action := HashMap.fromList $st, goto := HashMap.fromList $goto, conflict := HashSet.empty } : LRTable)
-    
-    `(def $(Syntax.mkAtom nStart): Grammar := $macroT) >>= elabCommand
-    logInfo s!"{repr table}"
+    let macroT ← `({ states := HashMap.empty, action := HashMap.fromList $st, goto := HashMap.fromList $goto, conflict := HashSet.empty })
+
+    let (sr, rr) := countConflicts table
+    let mut phrases := ""
+
+    if sr > 0 then phrases := s!"Found {sr} shift/reduce conflicts"
+    if rr > 0 then phrases := s!"{phrases}\nFound {rr} reduce/reduce conflicts"
+
+    if phrases != "" then liftMacroM (Macro.throwErrorAt gram phrases)
+
+    (set_option hygiene false in `(def getLRTable: LRTable := $macroT)) >>= elabCommand
 
 grammar myGrammar where
 
@@ -170,7 +186,11 @@ grammar myGrammar where
   token eq     : { "c" }
 
   rule s
-    :        { Int }
-    | eq     { d }
+    :            { Int }
+    | s s star   { d }
+    | s s x      { x }
+    | x          { e }
+
+#print getLRTable
 
 end DSL
