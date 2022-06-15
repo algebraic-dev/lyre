@@ -42,16 +42,33 @@ instance : Sizable Item where
 
 abbrev State      := HashSet Item
 abbrev Transition := Nat × Term × Nat
+abbrev Hash       := UInt64
 
 inductive Action where
-  | shift  (toRule: Int)
-  | reduce (quantity: Int)
+  | shift  (toRule: Nat)
+  | reduce (on: String) (action: Hash)
   | accept
+  deriving BEq, Hashable, Repr
 
 structure LRTable where
-  states : HashMap State Int
-  action : HashMap (Int × String) Action
-  goto   : HashMap (Int × String) Int
+  states   : HashMap State Nat
+  action   : HashMap (Nat × String) Action
+  goto     : HashMap (Nat × String) Nat
+  conflict : HashSet (Action × Action)
+  deriving Repr
+
+def LRTable.addAction (table: LRTable) (key: Nat × String) (act: Action): LRTable :=
+  match (HashMap.find? table.action key, act) with
+  | (none, act) =>
+      { table with action := HashMap.insert table.action key act }
+  | (some r@(Action.shift _), Action.reduce _ _) =>
+      { table with conflict := HashSet.insert table.conflict (r, act) }
+  | (some other, act) =>
+      { table with conflict := HashSet.insert table.conflict (other, act)
+                 , action   := HashMap.insert table.action key act }
+
+def LRTable.addGoto (table: LRTable) (key: Nat × String) (act: Nat): LRTable :=
+  { table with goto := HashMap.insert table.goto key act }
 
 def Option.getPanic [Inhabited α] : Option α → α
   | Option.some n => n
@@ -156,9 +173,9 @@ def getReductions (states: HashMap State Nat): HashSet (Nat × Item) :=
       | Option.some _ => reds
       | Option.none   => HashSet.insert reds (stateIdx, item)
 
-def compile (grammar: Grammar): HashMap State Nat × HashSet Transition :=
+def compile (grammar: Grammar): LRTable :=
     let terms  := [Term.nonTerm grammar.start, Term.term "$"]
-    let rule   := {label := "Start", rules := HashSet.fromList [terms]}
+    let rule   := {label := "start", rules := HashSet.fromList [terms]}
     let start  := Rule.toItem rule (HashSet.fromList ["$"]) terms
 
     let (first, _) := First.getTable grammar
@@ -171,8 +188,21 @@ def compile (grammar: Grammar): HashMap State Nat × HashSet Transition :=
       fixPoint 100 (states, transitions) (mkTrans first ·)
 
     let (states, transitions) := toLALR (states, transitions)
+    let reductions := getReductions states
+    let initialTable: LRTable := ⟨states, HashMap.empty, HashMap.empty, HashSet.empty⟩
 
-    (states, transitions)
+    let lrTable :=
+      HashSet.foldFor transitions initialTable $ λtable (from', under , to') =>
+        match under with
+        | Term.nonTerm x => table.addGoto   (from', x) to'
+        | Term.term x    => table.addAction (from', x) (Action.shift to')
+
+    HashSet.foldFor reductions lrTable $ λtable (on, item) =>
+      HashSet.foldFor item.ahead table $ λtable term =>
+        match (term, item.label) with
+        | ("$", "start") => table.addAction (on, term) (Action.accept)
+        | _              => table.addAction (on, term) (Action.reduce (item.label) (hash item.terms))
+
   where
     mkTrans (first: First) (tables: HashMap (HashSet Item) Nat × HashSet Transition): HashMap (HashSet Item) Nat × HashSet Transition :=
       HashMap.foldFor tables.fst tables $ λtables state fromStateIdx =>

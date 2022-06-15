@@ -16,8 +16,10 @@ structure Rule where
   rules : HashSet (List Term)
 
 structure Grammar where
-  start : String
-  rules : HashMap String Rule
+  start   : String
+  rules   : HashMap String Rule
+
+instance : ToString Term where toString n := toString (repr n)
 
 -- Generation of FIRST table
 
