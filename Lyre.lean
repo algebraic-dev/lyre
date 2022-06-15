@@ -10,8 +10,18 @@ open Lean Parser Command
 open Lean.Elab Command Term
 open DSL
 
-import Std.Data.HashSet
-import Std.Data.HashMap
+grammar myGrammar where
 
-import Lyre.Data.HashMap
-import Lyre.Data.HashSet
+  start s { String }
+
+  token x      : { "a" }
+  token star   : { "v" }
+  token eq     : { "c" }
+
+  rule s
+    :            { Int }
+    | s s star   { d }
+    | s s x      { x }
+    | x          { e }
+
+#print getLRTable

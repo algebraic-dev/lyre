@@ -177,20 +177,4 @@ elab gram:gGrammar : command => do
 
     (set_option hygiene false in `(def getLRTable: LRTable := $macroT)) >>= elabCommand
 
-grammar myGrammar where
-
-  start s { String }
-
-  token x      : { "a" }
-  token star   : { "v" }
-  token eq     : { "c" }
-
-  rule s
-    :            { Int }
-    | s s star   { d }
-    | s s x      { x }
-    | x          { e }
-
-#print getLRTable
-
 end DSL
